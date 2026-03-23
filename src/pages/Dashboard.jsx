@@ -22,6 +22,7 @@ const EMPTY_FORM = {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const isGuest = localStorage.getItem("isGuest") === "true";
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
@@ -32,6 +33,12 @@ export default function Dashboard() {
   const name = localStorage.getItem("name") || "User";
 
   const fetchJobs = async () => {
+    if (isGuest) {
+      const guestJobs = JSON.parse(localStorage.getItem("guestJobs") || "[]");
+      setJobs(guestJobs);
+      setLoading(false);
+      return;
+    }
     try {
       const { data } = await API.get("/jobs");
       setJobs(data);
@@ -56,7 +63,6 @@ export default function Dashboard() {
     setForm(EMPTY_FORM);
     setModal(true);
   };
-
   const openEdit = (job) => {
     setEditJob(job);
     setForm({
@@ -73,6 +79,30 @@ export default function Dashboard() {
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
+
+    if (isGuest) {
+      // Guest mode — save to localStorage only
+      const guestJobs = JSON.parse(localStorage.getItem("guestJobs") || "[]");
+      if (editJob) {
+        const updated = guestJobs.map((j) =>
+          j.id === editJob.id ? { ...j, ...form } : j,
+        );
+        localStorage.setItem("guestJobs", JSON.stringify(updated));
+        toast.success("Updated! (Guest mode)");
+      } else {
+        const newJob = { ...form, id: Date.now() };
+        localStorage.setItem(
+          "guestJobs",
+          JSON.stringify([...guestJobs, newJob]),
+        );
+        toast.success("Added! (Guest mode — register to save permanently)");
+      }
+      setModal(false);
+      fetchJobs();
+      setSaving(false);
+      return;
+    }
+
     try {
       if (editJob) {
         await API.put(`/jobs/${editJob.id}`, form);
@@ -92,6 +122,18 @@ export default function Dashboard() {
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this application?")) return;
+
+    if (isGuest) {
+      const guestJobs = JSON.parse(localStorage.getItem("guestJobs") || "[]");
+      localStorage.setItem(
+        "guestJobs",
+        JSON.stringify(guestJobs.filter((j) => j.id !== id)),
+      );
+      toast.success("Deleted!");
+      fetchJobs();
+      return;
+    }
+
     try {
       await API.delete(`/jobs/${id}`);
       toast.success("Deleted!");
@@ -111,7 +153,6 @@ export default function Dashboard() {
       j.company.toLowerCase().includes(search.toLowerCase()) ||
       j.role.toLowerCase().includes(search.toLowerCase()),
   );
-
   const getJobs = (status) => filtered.filter((j) => j.status === status);
 
   return (
@@ -121,6 +162,26 @@ export default function Dashboard() {
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Inter', sans-serif; background: #f8fafc; }
 
+        /* GUEST BANNER */
+        .guest-banner {
+          background: linear-gradient(135deg, #667eea, #764ba2);
+          color: white; padding: 0.6rem 1.5rem;
+          display: flex; align-items: center; justify-content: space-between;
+          font-size: 0.82rem; flex-wrap: wrap; gap: 0.5rem;
+        }
+        .guest-banner-text { display: flex; align-items: center; gap: 0.5rem; }
+        .guest-banner-btns { display: flex; gap: 0.5rem; }
+        .banner-btn {
+          padding: 0.3rem 0.8rem; border-radius: 6px;
+          font-family: 'Inter', sans-serif; font-size: 0.78rem;
+          font-weight: 600; cursor: pointer; border: none;
+          transition: all .15s;
+        }
+        .banner-btn-primary { background: white; color: #667eea; }
+        .banner-btn-primary:hover { opacity: 0.9; }
+        .banner-btn-secondary { background: rgba(255,255,255,0.2); color: white; }
+        .banner-btn-secondary:hover { background: rgba(255,255,255,0.3); }
+
         /* NAV */
         .nav {
           background: white; border-bottom: 1px solid #e5e7eb;
@@ -128,10 +189,7 @@ export default function Dashboard() {
           display: flex; align-items: center; justify-content: space-between;
           position: sticky; top: 0; z-index: 50;
         }
-        .nav-logo {
-          font-weight: 700; font-size: 1.1rem; color: #1a1a2e;
-          display: flex; align-items: center; gap: 0.5rem;
-        }
+        .nav-logo { font-weight: 700; font-size: 1.1rem; color: #1a1a2e; display: flex; align-items: center; gap: 0.4rem; }
         .nav-links { display: flex; gap: 0.25rem; }
         .nav-link {
           padding: 0.4rem 0.9rem; border-radius: 8px;
@@ -142,6 +200,11 @@ export default function Dashboard() {
         .nav-link.active { background: #667eea; color: white; }
         .nav-right { display: flex; align-items: center; gap: 0.75rem; }
         .nav-name { font-size: 0.85rem; color: #6b7280; }
+        .guest-tag {
+          background: #fef3c7; color: #d97706;
+          font-size: 0.7rem; font-weight: 700; padding: 0.2rem 0.5rem;
+          border-radius: 100px; text-transform: uppercase; letter-spacing: .04em;
+        }
         .nav-logout {
           padding: 0.4rem 0.9rem; border-radius: 8px;
           border: 1px solid #e5e7eb; background: none;
@@ -152,8 +215,6 @@ export default function Dashboard() {
 
         /* MAIN */
         .main { padding: 1.5rem; max-width: 1400px; margin: 0 auto; }
-
-        /* HEADER */
         .header {
           display: flex; align-items: center; justify-content: space-between;
           margin-bottom: 1.5rem; flex-wrap: wrap; gap: 1rem;
@@ -161,106 +222,76 @@ export default function Dashboard() {
         .header-title { font-size: 1.4rem; font-weight: 700; color: #1a1a2e; }
         .header-sub { font-size: 0.82rem; color: #9ca3af; margin-top: 0.15rem; }
         .header-right { display: flex; gap: 0.75rem; align-items: center; }
-
         .search-input {
           padding: 0.55rem 1rem; border: 1.5px solid #e5e7eb;
           border-radius: 8px; font-family: 'Inter', sans-serif;
-          font-size: 0.85rem; outline: none; width: 200px;
-          transition: border-color .2s;
+          font-size: 0.85rem; outline: none; width: 200px; transition: border-color .2s;
         }
         .search-input:focus { border-color: #667eea; }
-
         .add-btn {
           padding: 0.55rem 1.1rem;
           background: linear-gradient(135deg, #667eea, #764ba2);
           color: white; border: none; border-radius: 8px;
           font-family: 'Inter', sans-serif; font-size: 0.85rem;
-          font-weight: 600; cursor: pointer; white-space: nowrap;
-          transition: opacity .2s;
+          font-weight: 600; cursor: pointer; white-space: nowrap; transition: opacity .2s;
         }
         .add-btn:hover { opacity: 0.9; }
 
-        /* KANBAN */
-        .board {
-          display: grid;
-          grid-template-columns: repeat(5, 1fr);
-          gap: 1rem; align-items: start;
-        }
-        .col {
-          background: white; border-radius: 12px;
-          border: 1px solid #f1f5f9; overflow: hidden;
-        }
+        /* BOARD */
+        .board { display: grid; grid-template-columns: repeat(5,1fr); gap: 1rem; align-items: start; }
+        .col { background: white; border-radius: 14px; border: 1px solid #f1f5f9; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,0.04); }
         .col-header {
-          padding: 12px 14px;
-          display: flex; align-items: center; justify-content: space-between;
-          border-bottom: 2px solid;
+          padding: 12px 16px; display: flex; align-items: center;
+          justify-content: space-between; border-bottom: 2px solid;
         }
-        .col-label {
-          font-size: 0.72rem; font-weight: 700;
-          text-transform: uppercase; letter-spacing: .05em;
-        }
-        .col-count {
-          font-size: 0.72rem; font-weight: 700;
-          padding: 2px 8px; border-radius: 20px; color: white;
-        }
-        .col-body {
-          padding: 10px; min-height: 180px;
-          display: flex; flex-direction: column; gap: 8px;
-        }
+        .col-label { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+        .col-count { font-size: 0.72rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; color: white; }
+        .col-body { padding: 10px; min-height: 200px; display: flex; flex-direction: column; gap: 8px; }
 
         /* JOB CARD */
         .job-card {
-          background: #f8fafc; border: 1px solid #e5e7eb;
+          background: white; border: 1px solid #e5e7eb;
           border-radius: 10px; padding: 12px;
           transition: box-shadow .2s, transform .15s;
+          box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
-        .job-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.08); transform: translateY(-1px); }
-        .job-company { font-weight: 700; font-size: 0.88rem; color: #1a1a2e; margin-bottom: 2px; }
+        .job-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); transform: translateY(-1px); }
+        .job-company { font-weight: 700; font-size: 0.9rem; color: #1a1a2e; margin-bottom: 2px; }
         .job-role { font-size: 0.78rem; color: #6b7280; margin-bottom: 8px; }
-        .job-date { font-size: 0.7rem; color: #9ca3af; margin-bottom: 8px; }
+        .job-meta { font-size: 0.7rem; color: #9ca3af; margin-bottom: 4px; }
         .job-link {
-          display: inline-block; font-size: 0.7rem; color: #667eea;
-          text-decoration: none; margin-bottom: 8px;
-          white-space: nowrap; overflow: hidden;
-          text-overflow: ellipsis; max-width: 100%;
+          display: block; font-size: 0.7rem; color: #667eea;
+          text-decoration: none; margin-bottom: 4px;
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
-        .job-link:hover { text-decoration: underline; }
         .job-notes {
-          font-size: 0.72rem; color: #9ca3af;
-          border-top: 1px solid #e5e7eb; padding-top: 6px;
-          margin-top: 4px; line-height: 1.4;
+          font-size: 0.72rem; color: #9ca3af; line-height: 1.4;
+          border-top: 1px solid #f1f5f9; padding-top: 6px; margin-top: 6px;
         }
         .job-actions { display: flex; gap: 6px; margin-top: 8px; }
         .btn-edit, .btn-del {
-          flex: 1; padding: 4px 8px; border-radius: 6px;
-          font-family: 'Inter', sans-serif; font-size: 0.72rem;
-          font-weight: 600; cursor: pointer; border: none;
-          transition: opacity .15s;
+          flex: 1; padding: 5px 8px; border-radius: 7px;
+          font-family: 'Inter', sans-serif; font-size: 0.73rem;
+          font-weight: 600; cursor: pointer; border: none; transition: opacity .15s;
         }
         .btn-edit { background: #ede9fe; color: #7c3aed; }
-        .btn-edit:hover { opacity: 0.8; }
+        .btn-edit:hover { opacity: 0.75; }
         .btn-del { background: #fee2e2; color: #dc2626; }
-        .btn-del:hover { opacity: 0.8; }
+        .btn-del:hover { opacity: 0.75; }
 
-        /* EMPTY */
-        .empty {
-          text-align: center; padding: 2rem 1rem;
-          color: #d1d5db; font-size: 0.8rem;
-        }
-        .empty-icon { font-size: 1.5rem; margin-bottom: 0.4rem; }
+        .empty { text-align: center; padding: 2.5rem 1rem; color: #d1d5db; }
+        .empty-icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
+        .empty-text { font-size: 0.78rem; }
 
         /* MODAL */
         .overlay {
           position: fixed; inset: 0; z-index: 100;
           background: rgba(0,0,0,0.45);
-          display: flex; align-items: center; justify-content: center;
-          padding: 1rem;
+          display: flex; align-items: center; justify-content: center; padding: 1rem;
         }
         .modal {
-          background: white; border-radius: 16px;
-          width: 100%; max-width: 460px;
-          box-shadow: 0 20px 60px rgba(0,0,0,0.2);
-          max-height: 90vh; overflow-y: auto;
+          background: white; border-radius: 16px; width: 100%; max-width: 460px;
+          box-shadow: 0 20px 60px rgba(0,0,0,0.2); max-height: 90vh; overflow-y: auto;
         }
         .modal-head {
           display: flex; align-items: center; justify-content: space-between;
@@ -274,27 +305,20 @@ export default function Dashboard() {
         }
         .modal-body { padding: 1.25rem 1.5rem 1.5rem; }
         .field { margin-bottom: 1rem; }
-        .field label {
-          display: block; font-size: 0.78rem; font-weight: 600;
-          color: #374151; margin-bottom: 0.35rem;
-        }
+        .field label { display: block; font-size: 0.78rem; font-weight: 600; color: #374151; margin-bottom: 0.35rem; }
         .field input, .field select, .field textarea {
           width: 100%; padding: 0.65rem 0.9rem;
           border: 1.5px solid #e5e7eb; border-radius: 8px;
           font-family: 'Inter', sans-serif; font-size: 0.88rem;
-          color: #1a1a2e; outline: none;
-          transition: border-color .2s;
+          color: #1a1a2e; outline: none; transition: border-color .2s;
         }
-        .field input:focus, .field select:focus, .field textarea:focus {
-          border-color: #667eea;
-        }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color: #667eea; }
         .field textarea { resize: vertical; min-height: 70px; }
         .modal-actions { display: flex; gap: 0.75rem; margin-top: 1.25rem; }
         .btn-cancel {
           flex: 1; padding: 0.7rem; border-radius: 8px;
           border: 1.5px solid #e5e7eb; background: none;
-          font-family: 'Inter', sans-serif; font-size: 0.88rem;
-          color: #6b7280; cursor: pointer;
+          font-family: 'Inter', sans-serif; font-size: 0.88rem; color: #6b7280; cursor: pointer;
         }
         .btn-save {
           flex: 2; padding: 0.7rem; border-radius: 8px; border: none;
@@ -304,13 +328,33 @@ export default function Dashboard() {
         }
         .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
 
-        @media (max-width: 900px) {
-          .board { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 500px) {
-          .board { grid-template-columns: 1fr; }
-        }
+        @media (max-width: 1000px) { .board { grid-template-columns: repeat(3,1fr); } }
+        @media (max-width: 650px) { .board { grid-template-columns: repeat(2,1fr); } }
+        @media (max-width: 420px) { .board { grid-template-columns: 1fr; } }
       `}</style>
+
+      {/* GUEST BANNER */}
+      {isGuest && (
+        <div className="guest-banner">
+          <div className="guest-banner-text">
+            👤 You're in guest mode — data won't be saved permanently
+          </div>
+          <div className="guest-banner-btns">
+            <button
+              className="banner-btn banner-btn-primary"
+              onClick={() => navigate("/register")}
+            >
+              Create free account
+            </button>
+            <button
+              className="banner-btn banner-btn-secondary"
+              onClick={() => navigate("/login")}
+            >
+              Sign in
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* NAV */}
       <nav className="nav">
@@ -325,8 +369,9 @@ export default function Dashboard() {
         </div>
         <div className="nav-right">
           <span className="nav-name">Hi, {name.split(" ")[0]} 👋</span>
+          {isGuest && <span className="guest-tag">Guest</span>}
           <button className="nav-logout" onClick={handleLogout}>
-            Sign out
+            {isGuest ? "Exit" : "Sign out"}
           </button>
         </div>
       </nav>
@@ -339,6 +384,7 @@ export default function Dashboard() {
             <div className="header-sub">
               {jobs.length} total ·{" "}
               {jobs.filter((j) => j.status === "OFFER").length} offers
+              {isGuest && " · Guest mode"}
             </div>
           </div>
           <div className="header-right">
@@ -358,7 +404,7 @@ export default function Dashboard() {
           <div
             style={{ textAlign: "center", padding: "4rem", color: "#9ca3af" }}
           >
-            Loading your applications...
+            Loading...
           </div>
         ) : (
           <div className="board">
@@ -379,7 +425,7 @@ export default function Dashboard() {
                   {getJobs(col.key).length === 0 ? (
                     <div className="empty">
                       <div className="empty-icon">📋</div>
-                      No applications
+                      <div className="empty-text">No applications</div>
                     </div>
                   ) : (
                     getJobs(col.key).map((job) => (
@@ -387,7 +433,7 @@ export default function Dashboard() {
                         <div className="job-company">{job.company}</div>
                         <div className="job-role">{job.role}</div>
                         {job.appliedDate && (
-                          <div className="job-date">📅 {job.appliedDate}</div>
+                          <div className="job-meta">📅 {job.appliedDate}</div>
                         )}
                         {job.jobLink && (
                           <a
@@ -396,7 +442,7 @@ export default function Dashboard() {
                             target="_blank"
                             rel="noreferrer"
                           >
-                            🔗 {job.jobLink}
+                            🔗 View job posting
                           </a>
                         )}
                         {job.notes && (
@@ -502,7 +548,7 @@ export default function Dashboard() {
                 <div className="field">
                   <label>Notes</label>
                   <textarea
-                    placeholder="Any notes about this application..."
+                    placeholder="Any notes..."
                     value={form.notes}
                     onChange={(e) =>
                       setForm({ ...form, notes: e.target.value })
